@@ -1111,17 +1111,25 @@ int validate_columns(int n_columns, col_item col_items[], cd_entry cd_entries[])
     int rc = 0;
 
     // TODO:
-    // int type=K_NULL;
-    // for(int i=0;i<n_columns;i++) {
-    // 	type = col_items[i].token->tok_value;
-    // 	if(cd_entries[i].not_null && col_items[i].is_null) {
-    // 		rc = INVALID;
-    // 		col_items[i].token->tok_value = INVALID;
-    // 		break;
-    // 	} else if(type == cd_entries[i].col_type) {
-
-    // 	}
-    // }
+    int type = K_NULL;
+    for (int i = 0; i < n_columns; i++) {
+        type = col_items[i].token->tok_value;
+        if (cd_entries[i].not_null && col_items[i].is_null) {
+            rc = INVALID_COLUMN_DATA;
+            col_items[i].token->tok_value = INVALID;
+            break;
+        } else if (type == INT_LITERAL && cd_entries[i].col_type != T_INT) {
+            col_items[i].token->tok_value = INVALID;
+            rc = INVALID_COLUMN_DATA;
+            break;
+        } else if (type == STRING_LITERAL && ((cd_entries[i].col_type != T_CHAR) ||
+                                              (cd_entries[i].col_len <
+                                               (int)strlen(col_items[i].string_val)))) {
+            col_items[i].token->tok_value = INVALID;
+            rc = INVALID_COLUMN_DATA;
+            break;
+        }
+    }
     return rc;
 }
 
