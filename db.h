@@ -73,6 +73,18 @@ typedef struct col_item_def {
     int col_id;
 } col_item;
 
+typedef struct col_info_def {
+    char name[MAX_IDENT_LEN + 1];
+    token_list *token;
+} col_info;
+
+typedef struct row_item_def {
+    int num_fields;
+    col_item_def *value_ptrs[MAX_NUM_COL];
+    int sorting_col_id;
+    struct row_item_def *next;
+} row_item;
+
 /* This enum defines the different classes of tokens for 
 	 semantic processing. */
 typedef enum t_class {
@@ -190,6 +202,7 @@ int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
 int sem_insert_schema(token_list *t_list);
+int sem_select_schema(token_list *t_list);
 int execute_statement(char *statement);
 
 /*
@@ -209,3 +222,25 @@ int get_file_size(FILE *fhandle);
 int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
                           int num_cols, char record_bytes[],
                           int num_record_bytes);
+int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name);
+int update_row_item(cd_entry cd_entries[], int num_cols, row_item *c_row,
+                    char record_bytes[]);
+
+void print_table_border(cd_entry *sorted_cd_entries[], int num_values);
+void print_table_column_names(cd_entry *sorted_cd_entries[],
+                              col_info col_infos[], int num_values);
+void print_record_row(cd_entry *sorted_cd_entries[], int num_cols,
+                      row_item *row);
+void print_aggregate_result(int aggregate_type, int num_fields,
+                            int records_count, int int_sum,
+                            cd_entry *sorted_cd_entries[]);
+int column_display_width(cd_entry *col_entry);
+void print_aggregate_result(int aggregate_type, int num_fields,
+                            int records_count, int int_sum,
+                            cd_entry *sorted_cd_entries[]);
+
+inline void repeat_print_char(char c, int times) {
+    for (int i = 0; i < times; i++) {
+        printf("%c", c);
+    }
+}
