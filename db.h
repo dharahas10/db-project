@@ -41,6 +41,16 @@ typedef struct tpd_list_def {
     tpd_entry tpd_start;
 } tpd_list;
 
+/* Table file header structure = 4+4+4+4+4+4/8 = 24/28 Bytest (amd32/amd64) */
+typedef struct table_file_header_def {
+    int file_size;
+    int record_size;
+    int num_records;
+    int record_offset;
+    int file_header_flag;
+    tpd_entry *tpd_ptr;
+} table_file_header;
+
 /* This token_list definition is used for breaking the command
    string into separate tokens in function get_tokens().  For
 	 each token, a new token_list will be allocated and linked 
@@ -118,7 +128,7 @@ typedef enum t_value {
 
 /* New keyword must be added in the same position/order as the enum
    definition above, otherwise the lookup will be wrong */
-char *keyword_table[] =
+const char *const keyword_table[] =
     {
         "int", "char", "varchar", "create", "table", "not", "null", "drop", "list", "schema",
         "for", "to", "insert", "into", "values", "delete", "from", "where",
@@ -167,6 +177,7 @@ int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
+int execute_statement(char *statement);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored
@@ -177,3 +188,4 @@ int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry *get_tpd_from_list(char *tabname);
+void free_token_list(token_list *t_list);

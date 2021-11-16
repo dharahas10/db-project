@@ -15,6 +15,8 @@
 #define strcasecmp _stricmp
 #endif
 
+bool debug = true;
+
 int main(int argc, char **argv) {
     int rc = 0;
     token_list *tok_list = NULL, *tok_ptr = NULL, *tmp_tok_ptr = NULL;
@@ -24,48 +26,67 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    rc = initialize_tpd_list();
+    rc = execute_statement(argv[1]);
 
+    return rc;
+}
+
+int execute_statement(char *statement) {
+    token_list *tok_list = NULL, *tok_ptr = NULL;
+    int rc = initialize_tpd_list();
+
+    // check if tpd is initialized
     if (rc) {
         printf("\nError in initialize_tpd_list().\nrc = %d\n", rc);
-    } else {
-        rc = get_token(argv[1], &tok_list);
+        return rc;
+    }
 
-        /* Test code */
+    // parse statement for token
+    rc = get_token(statement, &tok_list);
+    if (rc) {
+        printf("\nError in parsing statement to tokens.\nrc = %d\n", rc);
+        free_token_list(tok_list);
+        return rc;
+    }
+
+    // print tokens
+    if (debug) {
         tok_ptr = tok_list;
         while (tok_ptr != NULL) {
             printf("%16s \t%d \t %d\n", tok_ptr->tok_string, tok_ptr->tok_class,
                    tok_ptr->tok_value);
             tok_ptr = tok_ptr->next;
         }
+    }
 
-        if (!rc) {
-            rc = do_semantic(tok_list);
-        }
+    // semantics
+    rc = do_semantic(tok_list);
 
-        if (rc) {
-            tok_ptr = tok_list;
-            while (tok_ptr != NULL) {
-                if ((tok_ptr->tok_class == error) ||
-                    (tok_ptr->tok_value == INVALID)) {
-                    printf("\nError in the string: %s\n", tok_ptr->tok_string);
-                    printf("rc=%d\n", rc);
-                    break;
-                }
-                tok_ptr = tok_ptr->next;
-            }
-        }
-
-        /* Whether the token list is valid or not, we need to free the memory */
+    if (rc) {
         tok_ptr = tok_list;
         while (tok_ptr != NULL) {
-            tmp_tok_ptr = tok_ptr->next;
-            free(tok_ptr);
-            tok_ptr = tmp_tok_ptr;
+            if ((tok_ptr->tok_class == error) ||
+                (tok_ptr->tok_value == INVALID)) {
+                printf("\nError in the string: %s\n", tok_ptr->tok_string);
+                printf("rc=%d\n", rc);
+                break;
+            }
+            tok_ptr = tok_ptr->next;
         }
     }
 
+    free_token_list(tok_list);
     return rc;
+}
+
+void free_token_list(token_list *t_list) {
+    token_list *tok_ptr = t_list;
+    token_list *tmp_tok_ptr = NULL;
+    while (tok_ptr != NULL) {
+        tmp_tok_ptr = tok_ptr->next;
+        free(tok_ptr);
+        tok_ptr = tmp_tok_ptr;
+    }
 }
 
 /************************************************************* 
