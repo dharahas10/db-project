@@ -3,3 +3,4 @@ db
 *.tab
 *.bin
 *.dSYM
+.vscode
