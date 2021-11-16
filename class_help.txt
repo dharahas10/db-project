@@ -1,0 +1,1 @@
+INSERT INTO CLASS VALUES('ash','M' , 100, 90)

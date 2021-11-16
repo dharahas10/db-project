@@ -351,6 +351,7 @@ int sem_create_table(token_list *t_list) {
         if ((new_entry = get_tpd_from_list(cur->tok_string)) != NULL) {
             rc = DUPLICATE_TABLE_NAME;
             cur->tok_value = INVALID;
+            printf("Table: %s already exists and error code: %d", cur->tok_string, rc);
         } else {
             strcpy(tab_entry.table_name, cur->tok_string);
             cur = cur->next;
@@ -358,6 +359,7 @@ int sem_create_table(token_list *t_list) {
                 //Error
                 rc = INVALID_TABLE_DEFINITION;
                 cur->tok_value = INVALID;
+                printf("Invalid table definition and error code: %d", cur->tok_string, rc);
             } else {
                 memset(&col_entry, '\0', (MAX_NUM_COL * sizeof(cd_entry)));
 
@@ -522,6 +524,14 @@ int sem_create_table(token_list *t_list) {
                                sizeof(cd_entry) * tab_entry.num_columns);
 
                         rc = add_tpd_to_list(new_entry);
+
+                        // create table file
+                        if (!rc) {
+                            rc = create_table_file(tab_entry, col_entry);
+                            if (rc) {
+                                cur->tok_value = INVALID;
+                            }
+                        }
 
                         free(new_entry);
                     }
@@ -859,6 +869,46 @@ int drop_tpd_from_list(char *tabname) {
 
     if (!found) {
         rc = INVALID_TABLE_NAME;
+    }
+
+    return rc;
+}
+
+int create_table_file(tpd_entry tab_entry, cd_entry cd_entries[]) {
+    int rc = 0;
+    table_file_header tab_header;
+
+    int record_size = 0;
+    for (int i = 0; i < tab_entry.num_columns; i++) {
+        record_size += (1 + cd_entries[i].col_len);
+    }
+    // size should be multiplier of 4
+    int r = record_size % 4;
+    record_size = r ? (record_size + 4 - r) : record_size;
+
+    // table details
+    tab_header.file_size = sizeof(table_file_header);
+    tab_header.record_size = record_size;
+    tab_header.num_records = 0;
+    tab_header.record_offset = sizeof(table_file_header);
+    tab_header.file_header_flag = 0;
+    tab_header.tpd_ptr = NULL;
+
+    char table_filename[MAX_IDENT_LEN + 5];
+    sprintf(table_filename, "%s.tab", tab_entry.table_name);
+
+    // create file
+    FILE *fhandle = NULL;
+    if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
+        rc = FILE_OPEN_ERROR;
+    } else {
+        fwrite((void *)&tab_header, tab_header.file_size, 1, fhandle);
+        fflush(fhandle);
+        fclose(fhandle);
+    }
+
+    if (debug) {
+        printf("%s is created successfully", table_filename);
     }
 
     return rc;

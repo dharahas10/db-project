@@ -189,3 +189,4 @@ int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry *get_tpd_from_list(char *tabname);
 void free_token_list(token_list *t_list);
+int create_table_file(tpd_entry tab_entry, cd_entry cd_entries[]);
