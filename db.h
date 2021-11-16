@@ -3,9 +3,12 @@ db.h - This file contains all the structures, defines, and function
 	prototype for the db.exe program.
 *********************************************************************/
 
+#include <stdio.h>
+
 #define MAX_IDENT_LEN 16
 #define MAX_NUM_COL 16
 #define MAX_TOK_LEN 32
+#define MAX_STRING_LEN 255
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
 #define NUMBER_BREAK " ),"
@@ -61,6 +64,14 @@ typedef struct t_list {
     int tok_value;
     struct t_list *next;
 } token_list;
+
+typedef struct col_item_def {
+    bool is_null;
+    int int_val;
+    char string_val[MAX_STRING_LEN + 1];
+    token_list *token;
+    int col_id;
+} col_item;
 
 /* This enum defines the different classes of tokens for 
 	 semantic processing. */
@@ -177,6 +188,7 @@ int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
+int sem_insert_schema(token_list *t_list);
 int execute_statement(char *statement);
 
 /*
@@ -190,3 +202,9 @@ int drop_tpd_from_list(char *tabname);
 tpd_entry *get_tpd_from_list(char *tabname);
 void free_token_list(token_list *t_list);
 int create_table_file(tpd_entry tab_entry, cd_entry cd_entries[]);
+int validate_columns(int n_columns, col_item col_items[], cd_entry cd_entries[]);
+int load_table_file(tpd_entry *tab_entry, table_file_header **table_header);
+int get_file_size(FILE *fhandle);
+int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
+                          int num_cols, char record_bytes[],
+                          int num_record_bytes);
