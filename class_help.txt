@@ -10,3 +10,33 @@
 ./db "insert into class values ('Victor', 'M', 475, 60, 535)"
 ./db "insert into class values ('Linawati', 'F', 490, 86, 576)"
 ./db "insert into class values ('Stephen', 'M', 520, 76, 596)"
+./db "insert into class values ('Test', NULL, 520, 76, 596)"
+./db "insert into class values ('Test', NULL, '520', 76, 596)"
+
+./db "select * from class"
+
+./db "delete from class where student_name = 'Siu'"
+
+./db "delete from class where total < 536"
+
+./db "update class set quiz_total=350 where student_name='David'"
+
+./db "update class set quiz_total=350 where student_name='David'"
+
+./db "update class set quiz_total=350 where total>350"
+
+./db "select * from class where student_name='Frank'"
+
+./db "select * from class where student_name<'Good Student'"
+
+./db "select * from class where gender is not null and total > 600"
+
+./db "select * from class where gender is not null or total > 600"
+
+./db "select * from class where gender is not null or total > 600 order by student_name desc"
+
+./db "select * from class where gender is not null or total > 600 order by total desc"
+
+./db "update class set student_name=NULL where student_name!='David'"
+
+./db "select AVG(total) from class"

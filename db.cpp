@@ -15,7 +15,7 @@
 #define strcasecmp _stricmp
 #endif
 
-bool debug = true;
+bool debug = false;
 
 int main(int argc, char **argv) {
     int rc = 0;
@@ -774,7 +774,7 @@ int initialize_tpd_list() {
         /* There is a valid dbfile.bin file - get file size */
         //		_fstat(_fileno(fhandle), &file_stat);
         fstat(fileno(fhandle), &file_stat);
-        printf("dbfile.bin size = %d\n", file_stat.st_size);
+        // printf("dbfile.bin size = %d\n", file_stat.st_size);
 
         g_tpd_list = (tpd_list *)calloc(1, file_stat.st_size);
 
@@ -1106,15 +1106,14 @@ int sem_select_schema(token_list *t_list) {
     // only one aggregate funtion is acceptable in the select statement.
     // Ex: select count(name) from class
     // No aggregate then collect the order of columns need to be returned/printed out.
-
+    // AVG, SUM, COUNT
     if (cur->tok_class == function_name &&
         cur->next->tok_value == S_LEFT_PAREN) {
-        // possible values: F_COUNT, F_AVG or F_SUM
         aggregate_type = cur->tok_value;
         //  check for column name
-        if (((cur->tok_class != keyword) &&
-             (cur->tok_class != identifier) &&
-             (cur->tok_class != type_name)) ||
+        if (((cur->tok_class == keyword) ||
+             (cur->tok_class == identifier) ||
+             (cur->tok_class == type_name)) ||
             (cur->next->next != NULL && cur->next->next->tok_value == S_STAR)) {
             rc = INVALID_COLUMN_NAME;
             cur->tok_value = INVALID;
@@ -1170,6 +1169,7 @@ int sem_select_schema(token_list *t_list) {
         strcpy(col_infos[col_counter].name, cur->tok_string);
         col_infos[col_counter].token = cur;
         col_counter++;
+        cur = cur->next;
         if (cur->tok_value == S_COMMA) {
             cur = cur->next;
         } else {
@@ -1178,7 +1178,7 @@ int sem_select_schema(token_list *t_list) {
     }
 
     // check for the FROM keyword
-    cur = cur->next;
+    // cur = cur->next;
     if ((cur->tok_class != keyword) &&
         (cur->tok_value != K_FROM)) {
         // Error
@@ -2287,9 +2287,9 @@ int save_records_to_file(table_file_header *const tab_header,
         fflush(fhandle);
         fclose(fhandle);
     }
-    if (!rc) {
-        printf("Delete executed successfully");
-    }
+    // if (!rc) {
+    //     printf("Delete executed successfully");
+    // }
     return rc;
 }
 
