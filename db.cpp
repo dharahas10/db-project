@@ -316,6 +316,9 @@ int do_semantic(token_list *tok_list) {
                ((cur->next != NULL) && (cur->next->tok_value == K_FROM))) {
         cur_cmd = DELETE;
         cur = cur->next->next;
+    } else if (cur->tok_value == K_UPDATE) {
+        cur_cmd = UPDATE;
+        cur = cur->next;
     } else {
         printf("Invalid statement\n");
         rc = cur_cmd;
@@ -343,6 +346,9 @@ int do_semantic(token_list *tok_list) {
                 break;
             case DELETE:
                 rc = sem_delete_schema(cur);
+                break;
+            case UPDATE:
+                rc = sem_update_schema(cur);
                 break;
             default:; /* no action */
         }
@@ -586,6 +592,15 @@ int sem_drop_table(token_list *t_list) {
             } else {
                 /* Found a valid tpd, drop it from tpd list */
                 rc = drop_tpd_from_list(cur->tok_string);
+                // delte the tab file
+                if (!rc) {
+                    char table_filename[MAX_IDENT_LEN + 5];
+                    sprintf(table_filename, "%s.tab", cur->tok_string);
+                    if (remove(table_filename) != 0) {
+                        rc = FILE_DELETE_ERROR;
+                        cur->tok_value = INVALID;
+                    }
+                }
             }
         }
     }
@@ -1239,6 +1254,9 @@ int sem_select_schema(token_list *t_list) {
 
     cur = cur->next;
     rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
+    if (rc) {
+        return rc;
+    }
 
     // TODO ORDER BY CLAUSE
     bool has_order_by_clause = false;
@@ -1402,6 +1420,9 @@ int sem_delete_schema(token_list *t_list) {
 
     cur = cur->next;
     rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
+    if (rc) {
+        return rc;
+    }
 
     if (cur->tok_value != EOC) {
         rc = INVALID_STATEMENT;
@@ -1466,9 +1487,227 @@ int sem_delete_schema(token_list *t_list) {
     free_row_item(p_first_row, true);
     free(tab_header);
     if (!rc) {
-        printf("Delete executed successfully");
+        printf("%d rows are deleted", num_affected_records);
     }
 
+    return rc;
+}
+
+int sem_update_schema(token_list *t_list) {
+    int rc = 0;
+    token_list *cur = t_list;
+
+    // check for table name
+    if ((cur->tok_class != keyword) &&
+        (cur->tok_class != identifier) &&
+        (cur->tok_class != type_name)) {
+        // Error
+        rc = INVALID_TABLE_NAME;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
+    if (tab_entry == NULL) {
+        rc = TABLE_NOT_EXIST;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    cd_entry *cd_entries = NULL;
+    get_cd_entries(tab_entry, &cd_entries);
+
+    cur = cur->next;
+    if (cur->tok_value != K_SET) {
+        rc = INVALID_STATEMENT;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    // update column
+    cur = cur->next;
+    col_item update_col;
+    memset(&update_col, '\0', sizeof(col_item));
+
+    // check for column class
+    if (cur->tok_class != identifier) {
+        rc = INVALID_COLUMN_NAME;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+    // column name not found
+    if (col_index < 0) {
+        rc = INVALID_COLUMN_NAME;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+    update_col.col_id = col_index;
+    update_col.token = cur;
+    // update_col.is_null = !cd_entries[col_index].not_null;
+
+    cur = cur->next;
+    if (cur->tok_value != S_EQUAL) {
+        rc = INVALID_STATEMENT;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    // update value
+    cur = cur->next;
+    update_col.is_null = false;
+    switch (cur->tok_value) {
+        case K_NULL: {
+            if (update_col.is_null && cd_entries[col_index].not_null) {
+                rc = INVALID_COLUMN_DATA;
+                return rc;
+            }
+            update_col.is_null = true;
+            break;
+        }
+
+        case INT_LITERAL: {
+            if (cd_entries[col_index].col_type != T_INT) {
+                rc = INVALID_COLUMN_DATA;
+            }
+            update_col.int_val = atoi(cur->tok_string);
+            break;
+        }
+
+        case STRING_LITERAL: {
+            if (cd_entries[col_index].col_type == T_INT) {
+                rc = INVALID_COLUMN_DATA;
+            }
+            strcpy(update_col.string_val, cur->tok_string);
+            break;
+        }
+        default: {
+            rc = INVALID;
+            break;
+        }
+    }
+    if (rc) {
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    bool has_where_clause = false;
+    row_predicate row_filter;
+    memset(&row_filter, '\0', sizeof(row_predicate));
+    row_filter.type = K_AND;
+
+    cur = cur->next;
+    rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
+    if (rc) {
+        return rc;
+    }
+
+    if (cur->tok_value != EOC) {
+        rc = INVALID_STATEMENT;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    table_file_header *tab_header = NULL;
+    if ((rc = load_table_file(tab_entry, &tab_header)) != 0) {
+        return rc;
+    }
+
+    // records
+    char *records = NULL;
+    if (tab_header->file_size > tab_header->record_offset) {
+        records = ((char *)tab_header) + tab_header->record_offset;
+    }
+    row_item rows[tab_header->num_records];
+    memset(rows, '\0', sizeof(rows));
+    row_item *p_current_row = NULL;
+    int num_loaded_records = 0;
+    int num_affected_records = 0;
+
+    for (int i = 0; i < tab_header->num_records; i++) {
+        // Fill all field values (not only displayed columns) from current record.
+        p_current_row = &rows[num_loaded_records];
+        update_row_item(cd_entries, tab_entry->num_columns, p_current_row,
+                        records);
+        num_loaded_records++;
+
+        // Update qualified records.
+        if ((!has_where_clause) ||
+            is_row_filtered(cd_entries, tab_entry->num_columns, p_current_row,
+                            &row_filter)) {
+            // Only update the record if the value is really changed.
+            bool value_changed = false;
+            if (cd_entries[update_col.col_id].col_type == T_INT) {
+                if (update_col.is_null) {
+                    // Update NULL integer value.
+                    if (!p_current_row->value_ptrs[update_col.col_id]->is_null) {
+                        p_current_row->value_ptrs[update_col.col_id]->is_null = true;
+                        p_current_row->value_ptrs[update_col.col_id]->int_val = 0;
+                        value_changed = true;
+                    }
+                } else {
+                    // Update real integer value.
+                    if (p_current_row->value_ptrs[update_col.col_id]->is_null ||
+                        p_current_row->value_ptrs[update_col.col_id]->int_val !=
+                            update_col.int_val) {
+                        p_current_row->value_ptrs[update_col.col_id]->is_null = false;
+                        p_current_row->value_ptrs[update_col.col_id]->int_val =
+                            update_col.int_val;
+                        value_changed = true;
+                    }
+                }
+            } else {
+                if (update_col.is_null) {
+                    // Update NULL string value.
+                    if (!p_current_row->value_ptrs[update_col.col_id]->is_null) {
+                        p_current_row->value_ptrs[update_col.col_id]->is_null = true;
+                        memset(
+                            p_current_row->value_ptrs[update_col.col_id]->string_val,
+                            '\0', MAX_STRING_LEN + 1);
+                        value_changed = true;
+                    }
+                } else {
+                    // Update real string value.
+                    if (p_current_row->value_ptrs[update_col.col_id]->is_null ||
+                        strcmp(p_current_row->value_ptrs[update_col.col_id]
+                                   ->string_val,
+                               update_col.string_val) != 0) {
+                        p_current_row->value_ptrs[update_col.col_id]->is_null = false;
+                        strcpy(
+                            p_current_row->value_ptrs[update_col.col_id]->string_val,
+                            update_col.string_val);
+                        value_changed = true;
+                    }
+                }
+            }
+            if (value_changed) {
+                copy_columns_as_bytes(cd_entries, p_current_row->value_ptrs,
+                                      tab_entry->num_columns, records,
+                                      tab_header->record_size);
+                num_affected_records++;
+            }
+        }
+        records += tab_header->record_size;
+    }
+
+    if (num_affected_records > 0) {
+        // Write records back to .tab file.
+        char table_filename[MAX_IDENT_LEN + 5];
+        sprintf(table_filename, "%s.tab", tab_header->tpd_ptr->table_name);
+        FILE *fhandle = NULL;
+        if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
+            rc = FILE_OPEN_ERROR;
+        } else {
+            tab_header->tpd_ptr = NULL;  // Reset tpd pointer.
+            fwrite(tab_header, tab_header->file_size, 1, fhandle);
+            fflush(fhandle);
+            fclose(fhandle);
+        }
+    }
+
+    free(tab_header);
+    printf("%d rows are update", num_affected_records);
     return rc;
 }
 
@@ -1551,6 +1790,7 @@ int parse_where_clauses(token_list *&cur, bool &has_where_clause, cd_entry cd_en
         }
         cur = cur->next;
     }
+    return rc;
 }
 int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
                           int num_cols, char record_bytes[],

@@ -208,7 +208,8 @@ typedef enum error_return_codes {
                                 /* Must add all the possible errors from I/U/D + SELECT here */
     FILE_OPEN_ERROR = -299,     // -299
     DBFILE_CORRUPTION,          // -298
-    MEMORY_ERROR                // -297
+    MEMORY_ERROR,               // -297
+    FILE_DELETE_ERROR           // -296
 } return_codes;
 
 /* Set of function prototypes */
@@ -223,6 +224,7 @@ int sem_insert_schema(token_list *t_list);
 int sem_select_schema(token_list *t_list);
 int execute_statement(char *statement);
 int sem_delete_schema(token_list *t_list);
+int sem_update_schema(token_list *t_list);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored
