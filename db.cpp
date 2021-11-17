@@ -1111,10 +1111,9 @@ int sem_select_schema(token_list *t_list) {
         cur->next->tok_value == S_LEFT_PAREN) {
         aggregate_type = cur->tok_value;
         //  check for column name
-        if (((cur->tok_class == keyword) ||
-             (cur->tok_class == identifier) ||
-             (cur->tok_class == type_name)) ||
-            (cur->next->next != NULL && cur->next->next->tok_value == S_STAR)) {
+        if ((cur->tok_class == keyword) ||
+            (cur->tok_class == identifier) ||
+            (cur->tok_class == type_name)) {
             rc = INVALID_COLUMN_NAME;
             cur->tok_value = INVALID;
             return rc;
