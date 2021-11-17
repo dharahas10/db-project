@@ -8,6 +8,7 @@ db.h - This file contains all the structures, defines, and function
 #define MAX_IDENT_LEN 16
 #define MAX_NUM_COL 16
 #define MAX_TOK_LEN 32
+#define MAX_NUM_CONDITION 2
 #define MAX_STRING_LEN 255
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
@@ -71,6 +72,7 @@ typedef struct col_item_def {
     char string_val[MAX_STRING_LEN + 1];
     token_list *token;
     int col_id;
+    int type;
 } col_item;
 
 typedef struct col_info_def {
@@ -84,6 +86,20 @@ typedef struct row_item_def {
     int sorting_col_id;
     struct row_item_def *next;
 } row_item;
+
+typedef struct row_condition_def {
+    int col_id;
+    int op_type;
+    int int_data_value;
+    char string_data_value[MAX_STRING_LEN + 1];
+} row_condition;
+
+typedef struct row_predicate_def {
+    int type;
+    int num_conditions;
+    row_condition conditions[2];
+
+} row_predicate;
 
 /* This enum defines the different classes of tokens for 
 	 semantic processing. */
@@ -187,6 +203,8 @@ typedef enum error_return_codes {
     INVALID_COLUMN_LENGTH,      // -389
     INVALID_REPORT_FILE_NAME,   // -388
     INVALID_COLUMN_DATA,        // -387
+    INVALID_CONDITION_OPERAND,  // -386
+    INVALID_CONDITION,          // -385
                                 /* Must add all the possible errors from I/U/D + SELECT here */
     FILE_OPEN_ERROR = -299,     // -299
     DBFILE_CORRUPTION,          // -298
@@ -238,9 +256,20 @@ int column_display_width(cd_entry *col_entry);
 void print_aggregate_result(int aggregate_type, int num_fields,
                             int records_count, int int_sum,
                             cd_entry *sorted_cd_entries[]);
+bool is_row_filtered(cd_entry cd_entries[], int num_cols, row_item *row_ptr,
+                     row_predicate *predicate_ptr);
+
+bool eval_condition(cd_entry cd_entries[], row_condition *condition_ptr, col_item *col_item_ptr);
+void sort_records(row_item rows[], int num_records, cd_entry *cd_entries_list_ptr,
+                  bool is_desc);
+int records_comparator(const void *arg1, const void *arg2);
 
 inline void repeat_print_char(char c, int times) {
     for (int i = 0; i < times; i++) {
         printf("%c", c);
     }
+}
+
+inline void get_cd_entries(tpd_entry *tab_entry, cd_entry **pp_cd_entry) {
+  *pp_cd_entry = (cd_entry *)(((char *)tab_entry) + tab_entry->cd_offset);
 }
