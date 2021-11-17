@@ -222,6 +222,7 @@ int sem_list_schema(token_list *t_list);
 int sem_insert_schema(token_list *t_list);
 int sem_select_schema(token_list *t_list);
 int execute_statement(char *statement);
+int sem_delete_schema(token_list *t_list);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored
@@ -263,7 +264,10 @@ bool eval_condition(cd_entry cd_entries[], row_condition *condition_ptr, col_ite
 void sort_records(row_item rows[], int num_records, cd_entry *cd_entries_list_ptr,
                   bool is_desc);
 int records_comparator(const void *arg1, const void *arg2);
-
+int parse_where_clauses(token_list *&cur, bool &has_where_clause, cd_entry cd_entries[], tpd_entry *tab_entry, row_predicate &row_filter);
+void free_row_item(row_item *row, bool to_last);
+int save_records_to_file(table_file_header *const tab_header,
+                         row_item *const rows_head);
 inline void repeat_print_char(char c, int times) {
     for (int i = 0; i < times; i++) {
         printf("%c", c);
@@ -271,5 +275,5 @@ inline void repeat_print_char(char c, int times) {
 }
 
 inline void get_cd_entries(tpd_entry *tab_entry, cd_entry **pp_cd_entry) {
-  *pp_cd_entry = (cd_entry *)(((char *)tab_entry) + tab_entry->cd_offset);
+    *pp_cd_entry = (cd_entry *)(((char *)tab_entry) + tab_entry->cd_offset);
 }

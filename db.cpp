@@ -312,6 +312,10 @@ int do_semantic(token_list *tok_list) {
                (cur->next != NULL)) {
         cur_cmd = SELECT;
         cur = cur->next;
+    } else if ((cur->tok_value == K_DELETE) &&
+               ((cur->next != NULL) && (cur->next->tok_value == K_FROM))) {
+        cur_cmd = DELETE;
+        cur = cur->next->next;
     } else {
         printf("Invalid statement\n");
         rc = cur_cmd;
@@ -336,6 +340,9 @@ int do_semantic(token_list *tok_list) {
                 break;
             case SELECT:
                 rc = sem_select_schema(cur);
+                break;
+            case DELETE:
+                rc = sem_delete_schema(cur);
                 break;
             default:; /* no action */
         }
@@ -1231,83 +1238,7 @@ int sem_select_schema(token_list *t_list) {
     row_filter.type = K_AND;
 
     cur = cur->next;
-    // WHere clause
-    if (cur->tok_value == K_WHERE) {
-        has_where_clause = true;
-        int col_index = -1;
-        int num_conditions = 0;
-        bool has_more_condition = true;
-
-        while (has_more_condition) {
-            cur = cur->next;
-            // check for column class
-            if (cur->tok_class != identifier) {
-                rc = INVALID_COLUMN_NAME;
-                cur->tok_value = INVALID;
-                return rc;
-            }
-
-            // find the column
-            col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
-            if (col_index == -1) {
-                rc = INVALID_COLUMN_NAME;
-                cur->tok_value = INVALID;
-                return rc;
-            }
-            // add column condtion for the row
-            row_filter.conditions[num_conditions].col_id = col_index;
-            // row_filter.conditions[num_conditions].value_type = cd_entries[col_index].col_type;
-
-            // parse for the operator
-            cur = cur->next;
-            if (cur->tok_value == S_LESS || cur->tok_value == S_GREATER ||
-                cur->tok_value == S_EQUAL) {
-                row_filter.conditions[num_conditions].op_type = cur->tok_value;
-                cur = cur->next;
-                // get the operand
-                if (cur->tok_value == INT_LITERAL && cd_entries[col_index].col_type == T_INT) {
-                    row_filter.conditions[num_conditions].int_data_value = atoi(cur->tok_string);
-                } else if (cur->tok_value == STRING_LITERAL && cd_entries[col_index].col_type != T_INT) {
-                    strcpy(row_filter.conditions[num_conditions].string_data_value, cur->tok_string);
-                } else {
-                    rc = INVALID_CONDITION_OPERAND;
-                    cur->tok_value = INVALID;
-                    return rc;
-                }
-            } else if (cur->tok_value == K_IS &&
-                       cur->next->tok_value == K_NULL) {
-                //    one step for NULL
-                cur = cur->next;
-                row_filter.conditions[num_conditions].op_type = K_IS;
-            } else if (cur->tok_value == K_IS && cur->next->tok_value == K_NOT &&
-                       cur->next->next->tok_value == K_NULL) {
-                //    Two steps for NOT and NULL
-                cur = cur->next->next;
-                row_filter.conditions[num_conditions].op_type = K_NOT;
-            } else {
-                rc = INVALID_CONDITION;
-                cur->tok_value = INVALID;
-                return rc;
-            }
-
-            num_conditions++;
-            row_filter.num_conditions = num_conditions;
-
-            // requirement of max 2 conditions
-            if (num_conditions == MAX_NUM_CONDITION) {
-                break;
-            }
-
-            if (cur->next->tok_value == K_AND || cur->next->tok_value == K_OR) {
-                cur = cur->next;
-                has_more_condition = true;
-                row_filter.type = cur->tok_value;
-            } else {
-                has_more_condition = false;
-            }
-        }
-        cur = cur->next;
-    }
+    rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
 
     // TODO ORDER BY CLAUSE
     bool has_order_by_clause = false;
@@ -1440,6 +1371,187 @@ int sem_select_schema(token_list *t_list) {
     return rc;
 }
 
+int sem_delete_schema(token_list *t_list) {
+    int rc = 0;
+    token_list *cur = t_list;
+
+    // check for table name
+    if ((cur->tok_class != keyword) &&
+        (cur->tok_class != identifier) &&
+        (cur->tok_class != type_name)) {
+        // Error
+        rc = INVALID_TABLE_NAME;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
+    if (tab_entry == NULL) {
+        rc = TABLE_NOT_EXIST;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    cd_entry *cd_entries = NULL;
+    get_cd_entries(tab_entry, &cd_entries);
+
+    bool has_where_clause = false;
+    row_predicate row_filter;
+    memset(&row_filter, '\0', sizeof(row_predicate));
+    row_filter.type = K_AND;
+
+    cur = cur->next;
+    rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
+
+    if (cur->tok_value != EOC) {
+        rc = INVALID_STATEMENT;
+        cur->tok_value = INVALID;
+        return rc;
+    }
+
+    table_file_header *tab_header = NULL;
+    if ((rc = load_table_file(tab_entry, &tab_header)) != 0) {
+        return rc;
+    }
+
+    // records
+    char *records = NULL;
+    if (tab_header->file_size > tab_header->record_offset) {
+        records = ((char *)tab_header) + tab_header->record_offset;
+    }
+
+    row_item *p_first_row = NULL;
+    row_item *p_current_row = NULL;
+    row_item *p_previous_row = NULL;
+    int num_loaded_records = 0;
+    int num_affected_records = 0;
+
+    for (int i = 0; i < tab_header->num_records; i++) {
+        if (p_previous_row == NULL) {  // The first record will be loaded.
+            p_current_row = (row_item *)malloc(sizeof(row_item));
+            p_first_row = p_current_row;
+        } else {
+            p_current_row = (row_item *)malloc(sizeof(row_item));
+            p_previous_row->next = p_current_row;
+        }
+        update_row_item(cd_entries, tab_entry->num_columns, p_current_row,
+                        records);
+        num_loaded_records++;
+
+        // Delete qualified records.
+        if ((!has_where_clause) ||
+            is_row_filtered(cd_entries, tab_entry->num_columns, p_current_row,
+                            &row_filter)) {
+            free_row_item(p_current_row, false);
+            p_current_row = NULL;
+            if (p_previous_row == NULL) {
+                p_first_row = NULL;
+            } else {
+                p_previous_row->next = NULL;
+            }
+            num_affected_records++;
+        } else {
+            p_previous_row = p_current_row;
+        }
+
+        // Move forward to next record.
+        records += tab_header->record_size;
+    }
+
+    if (num_affected_records > 0) {
+        // Write records back to .tab file.
+        rc = save_records_to_file(tab_header, p_first_row);
+    }
+
+    free_row_item(p_first_row, true);
+    free(tab_header);
+    if (!rc) {
+        printf("Delete executed successfully");
+    }
+
+    return rc;
+}
+
+int parse_where_clauses(token_list *&cur, bool &has_where_clause, cd_entry cd_entries[], tpd_entry *tab_entry, row_predicate &row_filter) {
+    int rc = 0;
+    // WHere clause
+    if (cur->tok_value == K_WHERE) {
+        has_where_clause = true;
+        int col_index = -1;
+        int num_conditions = 0;
+        bool has_more_condition = true;
+
+        while (has_more_condition) {
+            cur = cur->next;
+            // check for column class
+            if (cur->tok_class != identifier) {
+                rc = INVALID_COLUMN_NAME;
+                cur->tok_value = INVALID;
+                return rc;
+            }
+
+            // find the column
+            col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+            if (col_index == -1) {
+                rc = INVALID_COLUMN_NAME;
+                cur->tok_value = INVALID;
+                return rc;
+            }
+            // add column condtion for the row
+            row_filter.conditions[num_conditions].col_id = col_index;
+            // row_filter.conditions[num_conditions].value_type = cd_entries[col_index].col_type;
+
+            // parse for the operator
+            cur = cur->next;
+            if (cur->tok_value == S_LESS || cur->tok_value == S_GREATER ||
+                cur->tok_value == S_EQUAL) {
+                row_filter.conditions[num_conditions].op_type = cur->tok_value;
+                cur = cur->next;
+                // get the operand
+                if (cur->tok_value == INT_LITERAL && cd_entries[col_index].col_type == T_INT) {
+                    row_filter.conditions[num_conditions].int_data_value = atoi(cur->tok_string);
+                } else if (cur->tok_value == STRING_LITERAL && cd_entries[col_index].col_type != T_INT) {
+                    strcpy(row_filter.conditions[num_conditions].string_data_value, cur->tok_string);
+                } else {
+                    rc = INVALID_CONDITION_OPERAND;
+                    cur->tok_value = INVALID;
+                    return rc;
+                }
+            } else if (cur->tok_value == K_IS &&
+                       cur->next->tok_value == K_NULL) {
+                //    one step for NULL
+                cur = cur->next;
+                row_filter.conditions[num_conditions].op_type = K_IS;
+            } else if (cur->tok_value == K_IS && cur->next->tok_value == K_NOT &&
+                       cur->next->next->tok_value == K_NULL) {
+                //    Two steps for NOT and NULL
+                cur = cur->next->next;
+                row_filter.conditions[num_conditions].op_type = K_NOT;
+            } else {
+                rc = INVALID_CONDITION;
+                cur->tok_value = INVALID;
+                return rc;
+            }
+
+            num_conditions++;
+            row_filter.num_conditions = num_conditions;
+
+            // requirement of max 2 conditions
+            if (num_conditions == MAX_NUM_CONDITION) {
+                break;
+            }
+
+            if (cur->next->tok_value == K_AND || cur->next->tok_value == K_OR) {
+                cur = cur->next;
+                has_more_condition = true;
+                row_filter.type = cur->tok_value;
+            } else {
+                has_more_condition = false;
+            }
+        }
+        cur = cur->next;
+    }
+}
 int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
                           int num_cols, char record_bytes[],
                           int num_record_bytes) {
@@ -1449,7 +1561,8 @@ int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
     int int_value = 0;
     char *string_value = NULL;
     for (int i = 0; i < num_cols; i++) {
-        if (col_items[i]->token->tok_value == INT_LITERAL) {
+        // if (col_items[i]->token->tok_value == INT_LITERAL) {
+        if (cd_entries[i].col_type == T_INT) {
             // Store a integer.
             if (col_items[i]->is_null) {
                 // Null value.
@@ -1875,6 +1988,69 @@ int records_comparator(const void *arg1, const void *arg2) {
         }
     }
     return result;
+}
+
+void free_row_item(row_item *row, bool to_last) {
+    row_item *current_row = row;
+    row_item *temp = NULL;
+    while (current_row) {
+        for (int i = 0; i < current_row->num_fields; i++) {
+            free(current_row->value_ptrs[i]);
+        }
+        if (!to_last) {
+            return;
+        }
+        temp = current_row;
+        current_row = current_row->next;
+        free(temp);
+    }
+}
+
+int save_records_to_file(table_file_header *const tab_header,
+                         row_item *const rows_head) {
+    int rc = 0;
+    tpd_entry *const tab_entry = tab_header->tpd_ptr;
+
+    int num_rows = 0;
+    row_item *current_row = rows_head;
+    while (current_row) {
+        num_rows++;
+        current_row = current_row->next;
+    }
+
+    tab_header->num_records = num_rows;
+    tab_header->file_size =
+        sizeof(table_file_header) + tab_header->record_size * num_rows;
+    tab_header->tpd_ptr = NULL;
+
+    char table_filename[MAX_IDENT_LEN + 5];
+    sprintf(table_filename, "%s.tab", tab_entry->table_name);
+    FILE *fhandle = NULL;
+    if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
+        rc = FILE_OPEN_ERROR;
+    } else {
+        fwrite(tab_header, tab_header->record_offset, 1, fhandle);
+
+        char *record_raw_bytes = (char *)malloc(tab_header->record_size);
+        cd_entry *cd_entries = NULL;
+        get_cd_entries(tab_entry, &cd_entries);
+        current_row = rows_head;
+        while (current_row) {
+            memset(record_raw_bytes, '\0', tab_header->record_size);
+            copy_columns_as_bytes(cd_entries, current_row->value_ptrs,
+                                  tab_entry->num_columns, record_raw_bytes,
+                                  tab_header->record_size);
+            fwrite(record_raw_bytes, tab_header->record_size, 1, fhandle);
+            current_row = current_row->next;
+        }
+        free(record_raw_bytes);
+        fflush(fhandle);
+        fclose(fhandle);
+    }
+    if (!rc) {
+        printf("Delete executed successfully");
+    }
+    return rc;
 }
 
 tpd_entry *get_tpd_from_list(char *tabname) {
