@@ -40,3 +40,8 @@
 ./db "update class set student_name=NULL where student_name!='David'"
 
 ./db "select AVG(total) from class"
+./db "select SUM(total) from class"
+./db "select COUNT(Student_Name) from class"
+./db "select COUNT(*) from class"
+
+./db "drop table class"

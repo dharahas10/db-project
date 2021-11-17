@@ -1367,18 +1367,15 @@ int sem_select_schema(token_list *t_list) {
                          &cd_entries[order_by_column_id], order_by_desc);
         }
 
-        // Print all sorted records.
         for (int i = 0; i < num_loaded_records; i++) {
             print_record_row(listed_cd_entries, col_counter, &row_items[i]);
         }
         print_table_border(listed_cd_entries, col_counter);
     } else {
-        // Aggregate result is shown as a 1x1 table.
         print_aggregate_result(aggregate_type, col_counter, aggregate_records_count,
                                aggregate_int_sum, listed_cd_entries);
     }
 
-    // Clean allocated heap memory.
     free(tab_header);
     for (int i = 0; i < num_loaded_records; i++) {
         for (int j = 0; j < row_items[i].num_fields; j++) {
@@ -1447,7 +1444,7 @@ int sem_delete_schema(token_list *t_list) {
     int num_affected_records = 0;
 
     for (int i = 0; i < tab_header->num_records; i++) {
-        if (p_previous_row == NULL) {  // The first record will be loaded.
+        if (p_previous_row == NULL) {
             p_current_row = (row_item *)malloc(sizeof(row_item));
             p_first_row = p_current_row;
         } else {
@@ -1458,7 +1455,7 @@ int sem_delete_schema(token_list *t_list) {
                         records);
         num_loaded_records++;
 
-        // Delete qualified records.
+        // filter
         if ((!has_where_clause) ||
             is_row_filtered(cd_entries, tab_entry->num_columns, p_current_row,
                             &row_filter)) {
@@ -1474,7 +1471,6 @@ int sem_delete_schema(token_list *t_list) {
             p_previous_row = p_current_row;
         }
 
-        // Move forward to next record.
         records += tab_header->record_size;
     }
 
@@ -1544,7 +1540,6 @@ int sem_update_schema(token_list *t_list) {
     }
     update_col.col_id = col_index;
     update_col.token = cur;
-    // update_col.is_null = !cd_entries[col_index].not_null;
 
     cur = cur->next;
     if (cur->tok_value != S_EQUAL) {
@@ -1625,28 +1620,24 @@ int sem_update_schema(token_list *t_list) {
     int num_affected_records = 0;
 
     for (int i = 0; i < tab_header->num_records; i++) {
-        // Fill all field values (not only displayed columns) from current record.
         p_current_row = &rows[num_loaded_records];
         update_row_item(cd_entries, tab_entry->num_columns, p_current_row,
                         records);
         num_loaded_records++;
 
-        // Update qualified records.
+        // Update records.
         if ((!has_where_clause) ||
             is_row_filtered(cd_entries, tab_entry->num_columns, p_current_row,
                             &row_filter)) {
-            // Only update the record if the value is really changed.
             bool value_changed = false;
             if (cd_entries[update_col.col_id].col_type == T_INT) {
                 if (update_col.is_null) {
-                    // Update NULL integer value.
                     if (!p_current_row->value_ptrs[update_col.col_id]->is_null) {
                         p_current_row->value_ptrs[update_col.col_id]->is_null = true;
                         p_current_row->value_ptrs[update_col.col_id]->int_val = 0;
                         value_changed = true;
                     }
                 } else {
-                    // Update real integer value.
                     if (p_current_row->value_ptrs[update_col.col_id]->is_null ||
                         p_current_row->value_ptrs[update_col.col_id]->int_val !=
                             update_col.int_val) {
@@ -1658,7 +1649,6 @@ int sem_update_schema(token_list *t_list) {
                 }
             } else {
                 if (update_col.is_null) {
-                    // Update NULL string value.
                     if (!p_current_row->value_ptrs[update_col.col_id]->is_null) {
                         p_current_row->value_ptrs[update_col.col_id]->is_null = true;
                         memset(
@@ -1667,7 +1657,6 @@ int sem_update_schema(token_list *t_list) {
                         value_changed = true;
                     }
                 } else {
-                    // Update real string value.
                     if (p_current_row->value_ptrs[update_col.col_id]->is_null ||
                         strcmp(p_current_row->value_ptrs[update_col.col_id]
                                    ->string_val,
@@ -1690,8 +1679,8 @@ int sem_update_schema(token_list *t_list) {
         records += tab_header->record_size;
     }
 
+    // write to table file
     if (num_affected_records > 0) {
-        // Write records back to .tab file.
         char table_filename[MAX_IDENT_LEN + 5];
         sprintf(table_filename, "%s.tab", tab_header->tpd_ptr->table_name);
         FILE *fhandle = NULL;
@@ -1737,7 +1726,6 @@ int parse_where_clauses(token_list *&cur, bool &has_where_clause, cd_entry cd_en
             }
             // add column condtion for the row
             row_filter.conditions[num_conditions].col_id = col_index;
-            // row_filter.conditions[num_conditions].value_type = cd_entries[col_index].col_type;
 
             // parse for the operator
             cur = cur->next;
@@ -1800,7 +1788,6 @@ int copy_columns_as_bytes(cd_entry cd_entries[], col_item *col_items[],
     int int_value = 0;
     char *string_value = NULL;
     for (int i = 0; i < num_cols; i++) {
-        // if (col_items[i]->token->tok_value == INT_LITERAL) {
         if (cd_entries[i].col_type == T_INT) {
             // Store a integer.
             if (col_items[i]->is_null) {
@@ -2020,7 +2007,6 @@ void print_aggregate_result(int aggregate_type, int num_fields,
         sprintf(display_value, "%d", int_sum);
     } else if (aggregate_type == F_AVG) {
         if (records_count == 0) {
-            // Divided by zero error, show as NaN (i.e. Not-a-number).
             sprintf(display_value, "NaN");
         } else {
             sprintf(display_value, "%d", int_sum / records_count);
@@ -2160,8 +2146,6 @@ bool eval_condition(cd_entry cd_entries[], row_condition *condition_ptr, col_ite
             break;
         default:
             // Return true for unknown relational operators.
-            printf("[warning] unknown relational operator: %d\n",
-                   condition_ptr->op_type);
             result = true;
     }
     return result;
@@ -2286,9 +2270,6 @@ int save_records_to_file(table_file_header *const tab_header,
         fflush(fhandle);
         fclose(fhandle);
     }
-    // if (!rc) {
-    //     printf("Delete executed successfully");
-    // }
     return rc;
 }
 
@@ -2301,7 +2282,6 @@ tpd_entry *get_tpd_from_list(char *tabname) {
     if (num_tables > 0) {
         while ((!found) && (num_tables-- > 0)) {
             if (strcasecmp(cur->table_name, tabname) == 0) {
-                /* found it */
                 found = true;
                 tpd = cur;
             } else {
