@@ -1947,11 +1947,11 @@ int update_row_item(cd_entry cd_entries[], int num_cols, row_item *p_row,
 void print_table_border(cd_entry *list_cd_entries[], int num_values) {
     int col_width = 0;
     for (int i = 0; i < num_values; i++) {
-        printf("+");
+        printf("-");
         col_width = column_display_width(list_cd_entries[i]);
         repeat_print_char('-', col_width + 2);
     }
-    printf("+\n");
+    printf("-\n");
 }
 
 void print_table_column_names(cd_entry *list_cd_entries[],
@@ -1986,7 +1986,7 @@ void print_record_row(cd_entry *list_cd_entries[], int num_cols,
         col_index = list_cd_entries[i]->col_id;
         left_align = true;
         if (!col_items[col_index]->is_null) {
-            if (list_cd_entries[col_index]->col_type == T_INT) {
+            if (list_cd_entries[i]->col_type == T_INT) {
                 left_align = false;
                 sprintf(display_value, "%d", col_items[col_index]->int_val);
             } else {
@@ -1995,7 +1995,7 @@ void print_record_row(cd_entry *list_cd_entries[], int num_cols,
         } else {
             // Display NULL value as a dash.
             strcpy(display_value, "-");
-            left_align = (list_cd_entries[col_index]->col_type == STRING_LITERAL);
+            left_align = (list_cd_entries[i]->col_type == STRING_LITERAL);
         }
         col_gap =
             column_display_width(list_cd_entries[i]) - strlen(display_value) + 1;
@@ -2048,25 +2048,25 @@ void print_aggregate_result(int aggregate_type, int num_fields,
     int display_width = (strlen(display_value) > strlen(display_title))
                             ? strlen(display_value)
                             : strlen(display_title);
-    printf("+");
+    printf("-");
     repeat_print_char('-', display_width + 2);
-    printf("+\n");
+    printf("-\n");
 
     printf("| %s ", display_title);
     repeat_print_char(' ', display_width - strlen(display_title));
     printf("|\n");
 
-    printf("+");
+    printf("-");
     repeat_print_char('-', display_width + 2);
-    printf("+\n");
+    printf("-\n");
 
     printf("| %s ", display_value);
     repeat_print_char(' ', display_width - strlen(display_value));
     printf("|\n");
 
-    printf("+");
+    printf("-");
     repeat_print_char('-', display_width + 2);
-    printf("+\n");
+    printf("-\n");
 }
 
 bool is_row_filtered(cd_entry cd_entries[], int num_cols, row_item *row_ptr,
