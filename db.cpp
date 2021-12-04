@@ -11,9 +11,17 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <map>
+
 #if defined(_WIN32) || defined(_WIN64)
 #define strcasecmp _stricmp
 #endif
+
+struct cmp_str {
+    bool operator()(char const *a, char const *b) const {
+        return strcmp(a, b) < 0;
+    }
+};
 
 bool debug = false;
 
@@ -1087,7 +1095,7 @@ int sem_insert_schema(token_list *t_list) {
     free(record_bytes);
     free(table_header);
 
-    printf("Insert statment executed successfully");
+    printf("\n 1 record inserted successfully");
     return rc;
 }
 
@@ -1100,44 +1108,45 @@ int sem_select_schema(token_list *t_list) {
     col_info col_infos[MAX_NUM_COL];
     //parse column aggregates
     int aggregate_type = 0;
+    int aggregate_col_id = -1;
     int col_counter = 0;
     bool all_cols_parsed = false;
 
-    // only one aggregate funtion is acceptable in the select statement.
-    // Ex: select count(name) from class
-    // No aggregate then collect the order of columns need to be returned/printed out.
-    // AVG, SUM, COUNT
-    if (cur->tok_class == function_name &&
-        cur->next->tok_value == S_LEFT_PAREN) {
-        aggregate_type = cur->tok_value;
-        //  check for column name
-        if ((cur->tok_class == keyword) ||
-            (cur->tok_class == identifier) ||
-            (cur->tok_class == type_name)) {
-            rc = INVALID_COLUMN_NAME;
-            cur->tok_value = INVALID;
-            return rc;
-        }
-        cur = cur->next->next;
-        // add columns in parsed order
-        strcpy(col_infos[col_counter].name, cur->tok_string);
-        col_infos[col_counter].token = cur;
-        if (strcmp(cur->tok_string, "*") == 0) {
-            wildcard_col_idx = 0;
-        }
+    // // only one aggregate funtion is acceptable in the select statement.
+    // // Ex: select count(name) from class
+    // // No aggregate then collect the order of columns need to be returned/printed out.
+    // // AVG, SUM, COUNT
+    // if (cur->tok_class == function_name &&
+    //     cur->next->tok_value == S_LEFT_PAREN) {
+    //     aggregate_type = cur->tok_value;
+    //     //  check for column name
+    //     if ((cur->tok_class == keyword) ||
+    //         (cur->tok_class == identifier) ||
+    //         (cur->tok_class == type_name)) {
+    //         rc = INVALID_COLUMN_NAME;
+    //         cur->tok_value = INVALID;
+    //         return rc;
+    //     }
+    //     cur = cur->next->next;
+    //     // add columns in parsed order
+    //     strcpy(col_infos[col_counter].name, cur->tok_string);
+    //     col_infos[col_counter].token = cur;
+    //     if (strcmp(cur->tok_string, "*") == 0) {
+    //         wildcard_col_idx = 0;
+    //     }
 
-        cur = cur->next;
-        if (cur->tok_value != S_RIGHT_PAREN) {
-            // Error column name.
-            rc = INVALID_COLUMN_NAME;
-            cur->tok_value = INVALID;
-            return rc;
-        } else {
-            cur = cur->next;
-            col_counter++;
-            all_cols_parsed = true;
-        }
-    }
+    //     cur = cur->next;
+    //     if (cur->tok_value != S_RIGHT_PAREN) {
+    //         // Error column name.
+    //         rc = INVALID_COLUMN_NAME;
+    //         cur->tok_value = INVALID;
+    //         return rc;
+    //     } else {
+    //         cur = cur->next;
+    //         col_counter++;
+    //         all_cols_parsed = true;
+    //     }
+    // }
 
     // now parse if no aggregator function is passed in the statement
     while (!all_cols_parsed) {
@@ -1163,6 +1172,51 @@ int sem_select_schema(token_list *t_list) {
                 cur->tok_value = INVALID;
                 return rc;
             }
+        }
+
+        // only one aggregate funtion is acceptable in the select statement.
+        // Ex: select count(name) from class
+        // No aggregate then collect the order of columns need to be returned/printed out.
+        // AVG, SUM, COUNT
+        if (cur->tok_class == function_name &&
+            cur->next->tok_value == S_LEFT_PAREN) {
+            aggregate_type = cur->tok_value;
+            //  check for column name
+            if ((cur->tok_class == keyword) ||
+                (cur->tok_class == identifier) ||
+                (cur->tok_class == type_name)) {
+                rc = INVALID_COLUMN_NAME;
+                cur->tok_value = INVALID;
+                return rc;
+            }
+            cur = cur->next->next;
+            // add columns in parsed order
+            strcpy(col_infos[col_counter].name, cur->tok_string);
+            col_infos[col_counter].token = cur;
+            if (strcmp(cur->tok_string, "*") == 0) {
+                wildcard_col_idx = 0;
+            }
+
+            // aggregate column id
+            aggregate_col_id = col_counter;
+
+            cur = cur->next;
+            if (cur->tok_value != S_RIGHT_PAREN) {
+                // Error column name.
+                rc = INVALID_COLUMN_NAME;
+                cur->tok_value = INVALID;
+                return rc;
+            } else {
+                cur = cur->next;
+                col_counter++;
+                // all_cols_parsed = true;
+            }
+            if (cur->tok_value == S_COMMA) {
+                cur = cur->next;
+            } else {
+                all_cols_parsed = true;
+            }
+            continue;
         }
         // add column
         strcpy(col_infos[col_counter].name, cur->tok_string);
@@ -1231,9 +1285,9 @@ int sem_select_schema(token_list *t_list) {
             col_infos[i].token->tok_value = INVALID;
             return rc;
         }
-
-        if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
-            if ((col_counter == 1) && (cd_entries[col_index].col_type == T_INT)) {
+        cd_entry tmp_c = cd_entries[col_index];
+        if ((i == aggregate_col_id) && (aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+            if (cd_entries[col_index].col_type == T_INT) {
                 listed_cd_entries[i] = &cd_entries[col_index];
             } else {
                 rc = INVALID_STATEMENT;
@@ -1255,6 +1309,29 @@ int sem_select_schema(token_list *t_list) {
     rc = parse_where_clauses(cur, has_where_clause, cd_entries, tab_entry, row_filter);
     if (rc) {
         return rc;
+    }
+
+    // TOOD Group By clause
+    bool has_group_by_clause = false;
+    int group_by_column_id = -1;
+    if (cur->tok_value == K_GROUP && cur->next->tok_value == K_BY) {
+        cur = cur->next->next;
+        // check for column class
+        if (cur->tok_class != identifier) {
+            rc = INVALID_COLUMN_NAME;
+            cur->tok_value = INVALID;
+            return rc;
+        }
+        group_by_column_id = get_cd_entry_index(
+            cd_entries, tab_entry->num_columns, cur->tok_string);
+
+        if (group_by_column_id == -1) {
+            rc = INVALID_COLUMN_NAME;
+            cur->tok_value = INVALID;
+            return rc;
+        }
+        has_group_by_clause = true;
+        cur = cur->next;
     }
 
     // TODO ORDER BY CLAUSE
@@ -1295,6 +1372,12 @@ int sem_select_schema(token_list *t_list) {
         return rc;
     }
 
+    if (has_group_by_clause && aggregate_type == 0) {
+        rc = INVALID_STATEMENT;
+        printf("\nGroup By should have one aggregate function in statement");
+        return rc;
+    }
+
     // load table_file
     table_file_header *tab_header = NULL;
     if ((rc = load_table_file(tab_entry, &tab_header)) != 0) {
@@ -1311,14 +1394,60 @@ int sem_select_schema(token_list *t_list) {
     int num_loaded_records = 0;
     int aggregate_records_count = 0;
 
+    // if (has_group_by_clause) {
+    //     rc = parse_and_print_with_group_by(tab_header);
+    // }
+
     // load and filter the rows from table
     int n_rows = tab_header->num_records;
     row_item row_items[n_rows];
     row_item *curr_row = NULL;
+    // for (int i = 0; i < n_rows; i++) {
+    //     curr_row = &row_items[num_loaded_records];
+    //     update_row_item(cd_entries, tab_entry->num_columns, curr_row, records);
+
+    //     // TODO filtering
+    //     if (has_where_clause && !is_row_filtered(cd_entries, tab_entry->num_columns, curr_row,
+    //                                              &row_filter)) {
+    //         // free memory for filtered record
+    //         for (int j = 0; j < curr_row->num_fields; j++) {
+    //             free(curr_row->value_ptrs[j]);
+    //         }
+    //         memset(curr_row, '\0', sizeof(row_item));
+    //     } else {
+    //         num_loaded_records++;
+
+    //         if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+    //             // SUM(col) or AVG(col), ignore NULL rows.
+    //             if (!curr_row->value_ptrs[listed_cd_entries[0]->col_id]->is_null) {
+    //                 aggregate_int_sum +=
+    //                     curr_row->value_ptrs[listed_cd_entries[0]->col_id]
+    //                         ->int_val;
+    //                 aggregate_records_count++;
+    //             }
+    //         } else if (aggregate_type == F_COUNT) {
+    //             if (col_counter == 1) {
+    //                 // count(col), ignore NULL rows.
+    //                 if (!curr_row->value_ptrs[listed_cd_entries[0]->col_id]
+    //                          ->is_null) {
+    //                     aggregate_records_count++;
+    //                 }
+    //             } else {
+    //                 // count(*), include NULL rows.
+    //                 aggregate_records_count++;
+    //             }
+    //         }
+    //     }
+
+    //     // Move forward to next record.
+    //     records += tab_header->record_size;
+    // }
+    char *tmp_col_key = NULL;
+    std::map<char *, int, cmp_str> group_by_aggregate_map;
+    std::map<char *, int, cmp_str> group_by_aggregate_records_map;
     for (int i = 0; i < n_rows; i++) {
         curr_row = &row_items[num_loaded_records];
         update_row_item(cd_entries, tab_entry->num_columns, curr_row, records);
-
         // TODO filtering
         if (has_where_clause && !is_row_filtered(cd_entries, tab_entry->num_columns, curr_row,
                                                  &row_filter)) {
@@ -1327,36 +1456,137 @@ int sem_select_schema(token_list *t_list) {
                 free(curr_row->value_ptrs[j]);
             }
             memset(curr_row, '\0', sizeof(row_item));
-        } else {
-            num_loaded_records++;
+            continue;
+        }
+        num_loaded_records++;
+        int tmp_aggregate_int_sum = 0;
+        int tmp_aggregate_records_count = 0;
 
-            if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
-                // SUM(col) or AVG(col), ignore NULL rows.
-                if (!curr_row->value_ptrs[listed_cd_entries[0]->col_id]->is_null) {
-                    aggregate_int_sum +=
-                        curr_row->value_ptrs[listed_cd_entries[0]->col_id]
-                            ->int_val;
-                    aggregate_records_count++;
-                }
-            } else if (aggregate_type == F_COUNT) {
-                if (col_counter == 1) {
-                    // count(col), ignore NULL rows.
-                    if (!curr_row->value_ptrs[listed_cd_entries[0]->col_id]
-                             ->is_null) {
-                        aggregate_records_count++;
-                    }
-                } else {
-                    // count(*), include NULL rows.
-                    aggregate_records_count++;
-                }
+        if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+            // SUM(col) or AVG(col), ignore NULL rows.
+            if (!curr_row->value_ptrs[listed_cd_entries[aggregate_col_id]->col_id]->is_null) {
+                tmp_aggregate_int_sum +=
+                    curr_row->value_ptrs[listed_cd_entries[aggregate_col_id]->col_id]
+                        ->int_val;
+                tmp_aggregate_records_count++;
             }
+        } else if (aggregate_type == F_COUNT) {
+            if (col_counter == 1) {
+                // count(col), ignore NULL rows.
+                if (!curr_row->value_ptrs[listed_cd_entries[aggregate_col_id]->col_id]
+                         ->is_null) {
+                    tmp_aggregate_records_count++;
+                }
+            } else {
+                // count(*), include NULL rows.
+                tmp_aggregate_records_count++;
+            }
+        }
+
+        if (has_group_by_clause) {
+            if (curr_row->value_ptrs[group_by_column_id]->is_null) {
+                tmp_col_key = "NULL";
+            } else if (curr_row->value_ptrs[group_by_column_id]->type == T_INT) {
+                tmp_col_key = (char *)curr_row->value_ptrs[group_by_column_id]->int_val;
+            } else {
+                tmp_col_key = curr_row->value_ptrs[group_by_column_id]->string_val;
+            }
+
+            auto group_item = group_by_aggregate_map.find(tmp_col_key);
+            if (group_item == group_by_aggregate_map.end()) {
+                group_by_aggregate_map.insert(std::pair<char *, int>(tmp_col_key, tmp_aggregate_int_sum));
+            } else {
+                group_item->second += tmp_aggregate_int_sum;
+            }
+
+            auto group_record_item = group_by_aggregate_records_map.find(tmp_col_key);
+            if (group_record_item == group_by_aggregate_records_map.end()) {
+                group_by_aggregate_records_map.insert(std::pair<char *, int>(tmp_col_key, tmp_aggregate_records_count));
+            } else {
+                group_record_item->second += tmp_aggregate_records_count;
+            }
+
+        } else {
+            aggregate_int_sum += tmp_aggregate_int_sum;
+            aggregate_records_count += aggregate_records_count;
         }
 
         // Move forward to next record.
         records += tab_header->record_size;
     }
 
-    if (aggregate_type == 0) {
+    if (has_group_by_clause) {
+        print_table_border(listed_cd_entries, col_counter);
+        // print column names
+        int col_gap = 0;
+        // group_by column name
+        int group_col_idx = wildcard_col_idx != -1 ? group_by_column_id : 0;
+        printf("%c %s", '|', listed_cd_entries[group_col_idx]->col_name);
+        col_gap = column_display_width(listed_cd_entries[group_col_idx]) -
+                  strlen(listed_cd_entries[group_col_idx]->col_name) + 1;
+        repeat_print_char(' ', col_gap);
+
+        // aggregate column name
+        char display_title[MAX_STRING_LEN + 1];
+        memset(display_title, '\0', sizeof(display_title));
+        if (col_counter == 2) {
+            // Aggregate on one column.
+            if (aggregate_type == F_SUM) {
+                sprintf(display_title, "SUM(%s)", listed_cd_entries[1]->col_name);
+            } else if (aggregate_type == F_AVG) {
+                sprintf(display_title, "AVG(%s)", listed_cd_entries[1]->col_name);
+            } else {  // F_COUNT
+                sprintf(display_title, "COUNT(%s)", listed_cd_entries[1]->col_name);
+            }
+        } else {
+            // Aggregate on one column.
+            sprintf(display_title, "COUNT(*)");
+        }
+        int display_width = (strlen(display_title) > strlen(display_title))
+                                ? strlen(display_title)
+                                : strlen(display_title);
+
+        printf("%c %s", '|', display_title);
+        repeat_print_char(' ', display_width - strlen(display_title));
+        printf("%c\n", '|');
+
+        print_table_border(listed_cd_entries, col_counter);
+
+        // print results
+        std::map<char *, int>::iterator aggregate_it = group_by_aggregate_map.begin();
+        std::map<char *, int>::iterator aggregate_records_it = group_by_aggregate_records_map.begin();
+        while (aggregate_it != group_by_aggregate_map.end()) {
+            printf("| %s ", aggregate_it->first);
+            repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - strlen(aggregate_it->first));
+            // printf("| %d ", aggregate_it->second);
+            // repeat_print_char(' ', display_width - strlen(display_title));
+            // printf("|\n");
+
+            char display_value[MAX_STRING_LEN + 1];
+            memset(display_value, '\0', sizeof(display_value));
+            if (aggregate_type == F_SUM) {
+                sprintf(display_value, "%d", aggregate_it->second);
+            } else if (aggregate_type == F_AVG) {
+                if (aggregate_records_it->second == 0) {
+                    sprintf(display_value, "NaN");
+                } else {
+                    sprintf(display_value, "%d", aggregate_it->second / aggregate_records_it->second);
+                }
+            } else if (aggregate_type == F_COUNT) {
+                sprintf(display_value, "%d", aggregate_records_it->second);
+            }
+
+            printf("| %s ", display_value);
+            repeat_print_char(' ', display_width - strlen(display_value));
+            printf("|\n");
+
+            aggregate_it++;
+            aggregate_records_it++;
+        }
+
+    }
+
+    else if (aggregate_type == 0) {
         print_table_border(listed_cd_entries, col_counter);
         print_table_column_names(listed_cd_entries, col_infos, col_counter);
         print_table_border(listed_cd_entries, col_counter);
@@ -2272,6 +2502,39 @@ int save_records_to_file(table_file_header *const tab_header,
     }
     return rc;
 }
+
+// int print_group_by_aggregate_result(int aggregate_type, int wildcard_col_idx) {
+//     char display_title[MAX_STRING_LEN + 1];
+//     memset(display_title, '\0', sizeof(display_title));
+//     if (wildcard_col_idx == -1) {
+//         // Aggregate on one column.
+//         if (aggregate_type == F_SUM) {
+//             sprintf(display_title, "SUM(%s)", list_cd_entries[0]->col_name);
+//         } else if (aggregate_type == F_AVG) {
+//             sprintf(display_title, "AVG(%s)", list_cd_entries[0]->col_name);
+//         } else {  // F_COUNT
+//             sprintf(display_title, "COUNT(%s)", list_cd_entries[0]->col_name);
+//         }
+//     } else {
+//         // Aggregate on one column.
+//         sprintf(display_title, "COUNT(*)");
+//     }
+
+//     int display_width = (strlen(display_value) > strlen(display_title))
+//                             ? strlen(display_value)
+//                             : strlen(display_title);
+//     printf("-");
+//     repeat_print_char('-', display_width + 2);
+//     printf("-\n");
+
+//     printf("| %s ", display_title);
+//     repeat_print_char(' ', display_width - strlen(display_title));
+//     printf("|\n");
+
+//     printf("-");
+//     repeat_print_char('-', display_width + 2);
+//     printf("-\n");
+// }
 
 tpd_entry *get_tpd_from_list(char *tabname) {
     tpd_entry *tpd = NULL;

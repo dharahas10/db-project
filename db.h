@@ -144,10 +144,11 @@ typedef enum t_value {
     K_DESC,             // 33
     K_IS,               // 34
     K_AND,              // 35
-    K_OR,               // 36 - new keyword should be added below this line
-    F_SUM,              // 37
-    F_AVG,              // 38
-    F_COUNT,            // 39 - new function name should be added below this line
+    K_OR,               // 36
+    K_GROUP,            // 37 - new keyword should be added below this line
+    F_SUM,              // 38
+    F_AVG,              // 39
+    F_COUNT,            // 40 - new function name should be added below this line
     S_LEFT_PAREN = 70,  // 70
     S_RIGHT_PAREN,      // 71
     S_COMMA,            // 72
@@ -163,7 +164,7 @@ typedef enum t_value {
 } token_value;
 
 /* This constants must be updated when add new keywords */
-#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 30
+#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 31
 
 /* New keyword must be added in the same position/order as the enum
    definition above, otherwise the lookup will be wrong */
@@ -171,7 +172,7 @@ const char *const keyword_table[] =
     {
         "int", "char", "varchar", "create", "table", "not", "null", "drop", "list", "schema",
         "for", "to", "insert", "into", "values", "delete", "from", "where",
-        "update", "set", "select", "order", "by", "desc", "is", "and", "or",
+        "update", "set", "select", "order", "by", "desc", "is", "and", "or", "group",
         "sum", "avg", "count"};
 
 /* This enum defines a set of possible statements */
@@ -270,6 +271,8 @@ int parse_where_clauses(token_list *&cur, bool &has_where_clause, cd_entry cd_en
 void free_row_item(row_item *row, bool to_last);
 int save_records_to_file(table_file_header *const tab_header,
                          row_item *const rows_head);
+// int print_group_by_aggregate_result(int aggregate_type, int wildcard_col_idx);
+
 inline void repeat_print_char(char c, int times) {
     for (int i = 0; i < times; i++) {
         printf("%c", c);
