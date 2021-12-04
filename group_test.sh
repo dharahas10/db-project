@@ -14,5 +14,8 @@
 ./db "select gender, count(*) from class group by gender order by gender desc"
 ./db "select gender, count(*) from class group by gender order by gender"
 
+./db "select student_name, count(*) from class group by student_name order by student_name"
 
-./db "select * from class"
+./db "select gender, count(exams) from class group by student_name order by gender desc"
+
+# ./db "select * from class"

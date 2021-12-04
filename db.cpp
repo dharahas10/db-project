@@ -14,7 +14,6 @@
 
 #include <iostream>
 #include <map>
-#include <sstream>
 
 #if defined(_WIN32) || defined(_WIN64)
 #define strcasecmp _stricmp
@@ -1114,6 +1113,7 @@ int sem_select_schema(token_list *t_list) {
     int aggregate_col_id = -1;
     int col_counter = 0;
     bool all_cols_parsed = false;
+    char first_col_name[MAX_TOK_LEN];
 
     // // only one aggregate funtion is acceptable in the select statement.
     // // Ex: select count(name) from class
@@ -1224,6 +1224,10 @@ int sem_select_schema(token_list *t_list) {
         // add column
         strcpy(col_infos[col_counter].name, cur->tok_string);
         col_infos[col_counter].token = cur;
+        // This is for group name and first column verfication data
+        if (col_counter == 0) {
+            strcpy(first_col_name, cur->tok_string);
+        }
         col_counter++;
         cur = cur->next;
         if (cur->tok_value == S_COMMA) {
@@ -1381,6 +1385,12 @@ int sem_select_schema(token_list *t_list) {
         return rc;
     }
 
+    // if (has_group_by_clause && strcmp(cd_entries[group_by_column_id].col_name, first_col_name) != 0) {
+    //     rc = INVALID_STATEMENT;
+    //     printf("\nGroup By column: %c should be same as first column: %c in statement", cd_entries[group_by_column_id].col_name, first_col_name);
+    //     return rc;
+    // }
+
     // load table_file
     table_file_header *tab_header = NULL;
     if ((rc = load_table_file(tab_entry, &tab_header)) != 0) {
@@ -1524,15 +1534,7 @@ int sem_select_schema(token_list *t_list) {
     }
 
     if (has_group_by_clause) {
-        print_table_border(listed_cd_entries, col_counter);
-        // print column names
-        int col_gap = 0;
-        // group_by column name
-        int group_col_idx = wildcard_col_idx != -1 ? group_by_column_id : 0;
-        printf("%c %s", '|', listed_cd_entries[group_col_idx]->col_name);
-        col_gap = column_display_width(listed_cd_entries[group_col_idx]) -
-                  strlen(listed_cd_entries[group_col_idx]->col_name) + 1;
-        repeat_print_char(' ', col_gap);
+        // print_table_border(listed_cd_entries, 2);
 
         // aggregate column name
         char display_title[MAX_STRING_LEN + 1];
@@ -1550,15 +1552,37 @@ int sem_select_schema(token_list *t_list) {
             // Aggregate on one column.
             sprintf(display_title, "COUNT(*)");
         }
-        int display_width = (strlen(display_title) > strlen(display_title))
-                                ? strlen(display_title)
-                                : strlen(display_title);
+
+        // group_by column name
+        int group_col_idx = wildcard_col_idx != -1 ? group_by_column_id : 0;
+        int display_width = strlen(listed_cd_entries[group_col_idx]->col_name) + 1;
+
+        // border
+        int col1_len = listed_cd_entries[group_col_idx]->col_len;
+        if (listed_cd_entries[group_col_idx]->col_len < strlen(listed_cd_entries[group_col_idx]->col_name)) {
+            col1_len = strlen(listed_cd_entries[group_col_idx]->col_name);
+        }
+
+        printf("-");
+        repeat_print_char('-', col1_len + strlen(display_title) + 4);
+        printf("-\n");
+
+        // print column names
+        int col_gap = 0;
+
+        printf("%c %s", '|', listed_cd_entries[group_col_idx]->col_name);
+        col_gap = column_display_width(listed_cd_entries[group_col_idx]) -
+                  strlen(listed_cd_entries[group_col_idx]->col_name) + 1;
+        repeat_print_char(' ', col_gap);
 
         printf("%c %s", '|', display_title);
-        repeat_print_char(' ', display_width - strlen(display_title));
+        repeat_print_char(' ', 0);
         printf("%c\n", '|');
 
-        print_table_border(listed_cd_entries, col_counter);
+        // print_table_border(listed_cd_entries, 2);
+        printf("-");
+        repeat_print_char('-', col1_len + strlen(display_title) + 4);
+        printf("-\n");
 
         if (has_order_by_clause && order_by_desc) {
             // print results
@@ -1566,7 +1590,7 @@ int sem_select_schema(token_list *t_list) {
             std::map<std::string, int>::reverse_iterator aggregate_records_it = group_by_aggregate_records_map.rbegin();
             while (aggregate_it != group_by_aggregate_map.rend()) {
                 printf("| %s ", aggregate_it->first.c_str());
-                repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - aggregate_it->first.size());
+                repeat_print_char(' ', col1_len - aggregate_it->first.size());
 
                 char display_value[MAX_STRING_LEN + 1];
                 memset(display_value, '\0', sizeof(display_value));
@@ -1582,8 +1606,9 @@ int sem_select_schema(token_list *t_list) {
                     sprintf(display_value, "%d", aggregate_records_it->second);
                 }
 
-                printf("| %s ", display_value);
-                repeat_print_char(' ', display_width - strlen(display_value));
+                printf("| ");
+                repeat_print_char(' ', strlen(display_title) - strlen(display_value));
+                printf("%s", display_value);
                 printf("|\n");
 
                 aggregate_it++;
@@ -1595,7 +1620,7 @@ int sem_select_schema(token_list *t_list) {
             std::map<std::string, int>::iterator aggregate_records_it = group_by_aggregate_records_map.begin();
             while (aggregate_it != group_by_aggregate_map.end()) {
                 printf("| %s ", aggregate_it->first.c_str());
-                repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - aggregate_it->first.size());
+                repeat_print_char(' ', col1_len - aggregate_it->first.size());
 
                 char display_value[MAX_STRING_LEN + 1];
                 memset(display_value, '\0', sizeof(display_value));
@@ -1611,8 +1636,11 @@ int sem_select_schema(token_list *t_list) {
                     sprintf(display_value, "%d", aggregate_records_it->second);
                 }
 
-                printf("| %s ", display_value);
-                repeat_print_char(' ', display_width - strlen(display_value));
+                // printf("| %s ", display_value);
+                // repeat_print_char(' ', strlen(display_title) - 1 - strlen(display_value));
+                printf("| ");
+                repeat_print_char(' ', strlen(display_title) - strlen(display_value));
+                printf("%s", display_value);
                 printf("|\n");
 
                 aggregate_it++;
@@ -1620,7 +1648,10 @@ int sem_select_schema(token_list *t_list) {
             }
         }
 
-        print_table_border(listed_cd_entries, col_counter);
+        // print_table_border(listed_cd_entries, 2);
+        printf("-");
+        repeat_print_char('-', col1_len + strlen(display_title) + 4);
+        printf("-\n");
     }
 
     else if (aggregate_type == 0) {
