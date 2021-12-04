@@ -5,13 +5,16 @@
 #include "db.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <iostream>
 #include <map>
+#include <sstream>
 
 #if defined(_WIN32) || defined(_WIN64)
 #define strcasecmp _stricmp
@@ -1286,7 +1289,7 @@ int sem_select_schema(token_list *t_list) {
             return rc;
         }
         cd_entry tmp_c = cd_entries[col_index];
-        if ((i == aggregate_col_id) && (aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+        if ((i == aggregate_col_id) && ((aggregate_type == F_SUM) || (aggregate_type == F_AVG))) {
             if (cd_entries[col_index].col_type == T_INT) {
                 listed_cd_entries[i] = &cd_entries[col_index];
             } else {
@@ -1442,9 +1445,9 @@ int sem_select_schema(token_list *t_list) {
     //     // Move forward to next record.
     //     records += tab_header->record_size;
     // }
-    char *tmp_col_key = NULL;
-    std::map<char *, int, cmp_str> group_by_aggregate_map;
-    std::map<char *, int, cmp_str> group_by_aggregate_records_map;
+
+    std::map<std::string, int> group_by_aggregate_map;
+    std::map<std::string, int> group_by_aggregate_records_map;
     for (int i = 0; i < n_rows; i++) {
         curr_row = &row_items[num_loaded_records];
         update_row_item(cd_entries, tab_entry->num_columns, curr_row, records);
@@ -1456,6 +1459,8 @@ int sem_select_schema(token_list *t_list) {
                 free(curr_row->value_ptrs[j]);
             }
             memset(curr_row, '\0', sizeof(row_item));
+            // Move forward to next record.
+            records += tab_header->record_size;
             continue;
         }
         num_loaded_records++;
@@ -1484,31 +1489,34 @@ int sem_select_schema(token_list *t_list) {
         }
 
         if (has_group_by_clause) {
+            std::string tmp_col_key;
             if (curr_row->value_ptrs[group_by_column_id]->is_null) {
                 tmp_col_key = "NULL";
             } else if (curr_row->value_ptrs[group_by_column_id]->type == T_INT) {
-                tmp_col_key = (char *)curr_row->value_ptrs[group_by_column_id]->int_val;
+                // std::string s = std::to_string(curr_row->value_ptrs[group_by_column_id]->int_val);
+                // tmp_col_key = (char *)s.c_str();
+                tmp_col_key = std::to_string(curr_row->value_ptrs[group_by_column_id]->int_val);
             } else {
-                tmp_col_key = curr_row->value_ptrs[group_by_column_id]->string_val;
+                tmp_col_key = std::string(curr_row->value_ptrs[group_by_column_id]->string_val);
             }
 
             auto group_item = group_by_aggregate_map.find(tmp_col_key);
             if (group_item == group_by_aggregate_map.end()) {
-                group_by_aggregate_map.insert(std::pair<char *, int>(tmp_col_key, tmp_aggregate_int_sum));
+                group_by_aggregate_map.insert(std::pair<std::string, int>(tmp_col_key, tmp_aggregate_int_sum));
             } else {
                 group_item->second += tmp_aggregate_int_sum;
             }
 
             auto group_record_item = group_by_aggregate_records_map.find(tmp_col_key);
             if (group_record_item == group_by_aggregate_records_map.end()) {
-                group_by_aggregate_records_map.insert(std::pair<char *, int>(tmp_col_key, tmp_aggregate_records_count));
+                group_by_aggregate_records_map.insert(std::pair<std::string, int>(tmp_col_key, tmp_aggregate_records_count));
             } else {
                 group_record_item->second += tmp_aggregate_records_count;
             }
 
         } else {
             aggregate_int_sum += tmp_aggregate_int_sum;
-            aggregate_records_count += aggregate_records_count;
+            aggregate_records_count += tmp_aggregate_records_count;
         }
 
         // Move forward to next record.
@@ -1552,38 +1560,67 @@ int sem_select_schema(token_list *t_list) {
 
         print_table_border(listed_cd_entries, col_counter);
 
-        // print results
-        std::map<char *, int>::iterator aggregate_it = group_by_aggregate_map.begin();
-        std::map<char *, int>::iterator aggregate_records_it = group_by_aggregate_records_map.begin();
-        while (aggregate_it != group_by_aggregate_map.end()) {
-            printf("| %s ", aggregate_it->first);
-            repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - strlen(aggregate_it->first));
-            // printf("| %d ", aggregate_it->second);
-            // repeat_print_char(' ', display_width - strlen(display_title));
-            // printf("|\n");
+        if (has_order_by_clause && order_by_desc) {
+            // print results
+            std::map<std::string, int>::reverse_iterator aggregate_it = group_by_aggregate_map.rbegin();
+            std::map<std::string, int>::reverse_iterator aggregate_records_it = group_by_aggregate_records_map.rbegin();
+            while (aggregate_it != group_by_aggregate_map.rend()) {
+                printf("| %s ", aggregate_it->first.c_str());
+                repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - aggregate_it->first.size());
 
-            char display_value[MAX_STRING_LEN + 1];
-            memset(display_value, '\0', sizeof(display_value));
-            if (aggregate_type == F_SUM) {
-                sprintf(display_value, "%d", aggregate_it->second);
-            } else if (aggregate_type == F_AVG) {
-                if (aggregate_records_it->second == 0) {
-                    sprintf(display_value, "NaN");
-                } else {
-                    sprintf(display_value, "%d", aggregate_it->second / aggregate_records_it->second);
+                char display_value[MAX_STRING_LEN + 1];
+                memset(display_value, '\0', sizeof(display_value));
+                if (aggregate_type == F_SUM) {
+                    sprintf(display_value, "%d", aggregate_it->second);
+                } else if (aggregate_type == F_AVG) {
+                    if (aggregate_records_it->second == 0) {
+                        sprintf(display_value, "NaN");
+                    } else {
+                        sprintf(display_value, "%d", aggregate_it->second / aggregate_records_it->second);
+                    }
+                } else if (aggregate_type == F_COUNT) {
+                    sprintf(display_value, "%d", aggregate_records_it->second);
                 }
-            } else if (aggregate_type == F_COUNT) {
-                sprintf(display_value, "%d", aggregate_records_it->second);
+
+                printf("| %s ", display_value);
+                repeat_print_char(' ', display_width - strlen(display_value));
+                printf("|\n");
+
+                aggregate_it++;
+                aggregate_records_it++;
             }
+        } else {
+            // print results
+            std::map<std::string, int>::iterator aggregate_it = group_by_aggregate_map.begin();
+            std::map<std::string, int>::iterator aggregate_records_it = group_by_aggregate_records_map.begin();
+            while (aggregate_it != group_by_aggregate_map.end()) {
+                printf("| %s ", aggregate_it->first.c_str());
+                repeat_print_char(' ', column_display_width(listed_cd_entries[group_col_idx]) - aggregate_it->first.size());
 
-            printf("| %s ", display_value);
-            repeat_print_char(' ', display_width - strlen(display_value));
-            printf("|\n");
+                char display_value[MAX_STRING_LEN + 1];
+                memset(display_value, '\0', sizeof(display_value));
+                if (aggregate_type == F_SUM) {
+                    sprintf(display_value, "%d", aggregate_it->second);
+                } else if (aggregate_type == F_AVG) {
+                    if (aggregate_records_it->second == 0) {
+                        sprintf(display_value, "NaN");
+                    } else {
+                        sprintf(display_value, "%d", aggregate_it->second / aggregate_records_it->second);
+                    }
+                } else if (aggregate_type == F_COUNT) {
+                    sprintf(display_value, "%d", aggregate_records_it->second);
+                }
 
-            aggregate_it++;
-            aggregate_records_it++;
+                printf("| %s ", display_value);
+                repeat_print_char(' ', display_width - strlen(display_value));
+                printf("|\n");
+
+                aggregate_it++;
+                aggregate_records_it++;
+            }
         }
 
+        print_table_border(listed_cd_entries, col_counter);
     }
 
     else if (aggregate_type == 0) {
